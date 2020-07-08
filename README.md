@@ -17,9 +17,8 @@ FUN main {
 
   # Load a nice dark blue into the palette.
   # cgaddr is already at address 0 from init
-  A := 0xFF;
-  cgdata:= A;
-  A := 0x7F;
+  A := 0x1C;
+  cgdata:= 0;
   cgdata := A;
 
   # Disable force blank
@@ -35,9 +34,8 @@ This compiles to the following 65816 assembly:
 
 ```
 main:
-  LDA #$FF
-  STA $2122
-  LDA #$7F
+  LDA #$1C
+  STZ $2122
   STA $2122
   LDA #$0F
   STA $2100

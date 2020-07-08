@@ -473,16 +473,9 @@ fn snes() {
                     instructions: vec![
                         Instruction::Assign(
                             Operand::Register(Register::A),
-                            Operand::Immediate(0xFF),
+                            Operand::Immediate(0x1C),
                         ),
-                        Instruction::Assign(
-                            Operand::Variable("cgdata"),
-                            Operand::Register(Register::A),
-                        ),
-                        Instruction::Assign(
-                            Operand::Register(Register::A),
-                            Operand::Immediate(0x7F),
-                        ),
+                        Instruction::Assign(Operand::Variable("cgdata"), Operand::Immediate(0)),
                         Instruction::Assign(
                             Operand::Variable("cgdata"),
                             Operand::Register(Register::A),
