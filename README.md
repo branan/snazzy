@@ -30,7 +30,7 @@ FUN main {
 }
 ```
 
-This compiles to the following 65816 assembly:
+This excerpt compiles to the following 65816 assembly:
 
 ```
 main:
@@ -42,6 +42,9 @@ main:
 loop:
   BRA loop
 ```
+
+For a full, runnable version of the above example, see the [test
+program](tests/input/snes.snz)
 
 ## Supported Features
 
