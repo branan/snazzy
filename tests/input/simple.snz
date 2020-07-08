@@ -1,0 +1,6 @@
+VAR reg := 0x1000;
+
+FUN main {
+  A := 0x30;
+  reg := A;
+}

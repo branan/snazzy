@@ -1,0 +1,136 @@
+FUN cop [INTR] {}
+FUN brk [INTR] {}
+FUN nmi [INTR] {}
+FUN irq [INTR] {}
+
+FUN cop_emu [EMU, INTR] {}
+FUN nmi_emu [EMU, INTR] {}
+FUN irq_emu [EMU, INTR] {}
+
+# Init code stolen shamelessly from
+# https://en.wikibooks.org/wiki/Super_NES_Programming/Initialization_Tutorial/Snes_Init
+FUN reset [EMU, INTR] {
+  SEI;
+  # No explicit switch to native mode - the [NAT] block handles that transition for us
+  [NAT] {
+    [WIDEM] {
+      # Setup the stack and zero page pointers
+      C := 0x01FF;
+      S := C;
+      C := 0x0000;
+      D := C;
+    }
+
+    A := 0x8F;
+    *0x2100 := A;
+    *0x2101 := 0;
+    *0x2102 := 0;
+    *0x2103 := 0;
+    *0x2105 := 0;
+    *0x2106 := 0;
+    *0x2107 := 0;
+    *0x2108 := 0;
+    *0x2109 := 0;
+    *0x210A := 0;
+    *0x210B := 0;
+    *0x210C := 0;
+    *0x210D := 0;
+    *0x210D := 0;
+    A := 0xFF;
+    *0x210E := A;
+    *0x2110 := A;
+    *0x2112 := A;
+    *0x2114 := A;
+    A := 0x07;
+    *0x210E := A;
+    *0x2110 := A;
+    *0x2112 := A;
+    *0x2114 := A;
+    *0x210f := 0;
+    *0x210f := 0;
+    *0x2111 := 0;
+    *0x2111 := 0;
+    *0x2113 := 0;
+    *0x2113 := 0;
+    A := 0x80;
+    *0x2115 := A;
+    *0x2116 := 0;
+    *0x2117 := 0;
+    *0x211A := 0;
+    *0x211B := 0;
+    A := 0x01;
+    *0x211B := A;
+    *0x211C := 0;
+    *0x211C := 0;
+    *0x211D := 0;
+    *0x211D := 0;
+    *0x211E := 0;
+    *0x211E := A;
+    *0x211F := 0;
+    *0x211F := 0;
+    *0x2120 := 0;
+    *0x2120 := 0;
+    *0x2121 := 0;
+    *0x2123 := 0;
+    *0x2124 := 0;
+    *0x2125 := 0;
+    *0x2126 := 0;
+    *0x2127 := 0;
+    *0x2128 := 0;
+    *0x2129 := 0;
+    *0x212A := 0;
+    *0x212B := 0;
+    *0x212C := A;
+    *0x212D := 0;
+    *0x212E := 0;
+    *0x212F := 0;
+    A := 0x30;
+    *0x2130 := A;
+    *0x2131 := 0;
+    A := 0xE0;
+    *0x2132 := A;
+    *0x2133 := 0;
+
+    A := 0xFF;
+    *0x4200 := 0;
+    *0x4201 := A;
+    *0x4202 := 0;
+    *0x4203 := 0;
+    *0x4204 := 0;
+    *0x4205 := 0;
+    *0x4206 := 0;
+    *0x4207 := 0;
+    *0x4208 := 0;
+    *0x4209 := 0;
+    *0x420A := 0;
+    *0x420B := 0;
+    *0x420C := 0;
+    *0x420D := 0;
+
+    CLI;
+    main();
+  }
+}
+
+# END setup boilerplate
+
+VAR inidisp := 0x2100;
+VAR cgdata := 0x2122;
+
+FUN main {
+  # force-blanking is on from init, so we can set our registers
+
+  # Load a nice dark blue into the palette.
+  # cgaddr is already at address 0 from init
+  A := 0xFF;
+  cgdata:= A;
+  A := 0x7F;
+  cgdata := A;
+
+  # Disable force blank
+  A := 0x0F;
+  inidisp := A;
+
+  # We're done - wait forever
+  DO {}
+}
