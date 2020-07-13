@@ -301,12 +301,73 @@ fn assemble_instruction<'c, 'p: 'c>(
                     ))
                 }
             }
+            (Operand::Register(Register::C), Operand::Variable(var)) => {
+                if context.wide_math {
+                    if let Some(Name::Var(addr)) = context.names.get(var) {
+                        if *addr > 0xFFFF {
+                            Err(Error::InvalidAddress(*addr, function_name))
+                        } else {
+                            let bytes = addr.to_le_bytes();
+                            let instruction = [0xAD, bytes[0], bytes[1]]; // LDA abs
+                            context
+                                .bank
+                                .push_code("Load A", function_name, &instruction)
+                        }
+                    } else {
+                        Err(Error::UnknownVariable(var, function_name))
+                    }
+                } else {
+                    Err(Error::InvalidRegister(
+                        Register::C,
+                        Attribute::NarrowMath,
+                        function_name,
+                    ))
+                }
+            }
             (Operand::Register(Register::D), Operand::Register(Register::C)) => context
                 .bank
                 .push_code("Transfer C to D", function_name, &[0x5B]),
             (Operand::Register(Register::S), Operand::Register(Register::C)) => context
                 .bank
                 .push_code("Transfer C to S", function_name, &[0x1B]),
+            (Operand::Register(Register::X), Operand::Immediate(value)) => {
+                if context.wide_index {
+                    if *value > 0xFFFF {
+                        Err(Error::InvalidValue(*value, function_name))
+                    } else {
+                        let bytes = value.to_le_bytes();
+                        let instruction = [0xA2, bytes[0], bytes[1]]; // LDX imm
+                        context
+                            .bank
+                            .push_code("Load X imm", function_name, &instruction)
+                    }
+                } else {
+                    if *value > 0xFF {
+                        Err(Error::InvalidValue(*value, function_name))
+                    } else {
+                        let bytes = value.to_le_bytes();
+                        let instruction = [0xA2, bytes[0]]; // LX imm
+                        context
+                            .bank
+                            .push_code("Load X imm", function_name, &instruction)
+                    }
+                }
+            }
+            (Operand::Register(Register::X), Operand::Variable(var)) => {
+                if let Some(Name::Var(addr)) = context.names.get(var) {
+                    if *addr > 0xFFFF {
+                        Err(Error::InvalidAddress(*addr, function_name))
+                    } else {
+                        let bytes = addr.to_le_bytes();
+                        let instruction = [0xAE, bytes[0], bytes[1]]; // LDX abs
+                        context
+                            .bank
+                            .push_code("Load X abs", function_name, &instruction)
+                    }
+                } else {
+                    Err(Error::UnknownVariable(var, function_name))
+                }
+            }
             (Operand::Absolute(addr), Operand::Register(Register::A)) => {
                 if *addr > 0xFFFF {
                     Err(Error::InvalidAddress(*addr, function_name))
@@ -339,6 +400,21 @@ fn assemble_instruction<'c, 'p: 'c>(
                         context
                             .bank
                             .push_code("Store A", function_name, &instruction)
+                    }
+                } else {
+                    Err(Error::UnknownVariable(var, function_name))
+                }
+            }
+            (Operand::Variable(var), Operand::Register(Register::X)) => {
+                if let Some(Name::Var(addr)) = context.names.get(var) {
+                    if *addr > 0xFFFF {
+                        Err(Error::InvalidAddress(*addr, function_name))
+                    } else {
+                        let bytes = addr.to_le_bytes();
+                        let instruction = [0x8E, bytes[0], bytes[1]]; // STX abs
+                        context
+                            .bank
+                            .push_code("Store X", function_name, &instruction)
                     }
                 } else {
                     Err(Error::UnknownVariable(var, function_name))
@@ -635,6 +711,26 @@ fn assemble_conditional<'a, 'c, 'p: 'c>(
                     }
                     let bytes = value.to_le_bytes();
                     let instruction = [0x89, bytes[0]]; // BIT imm
+                    context
+                        .bank
+                        .push_code("BIT A imm", function_name, &instruction)?;
+
+                    false
+                }
+                (Operand::Register(Register::C), Operand::Immediate(value)) => {
+                    if !context.wide_math {
+                        return Err(Error::InvalidRegister(
+                            Register::C,
+                            Attribute::WideMath,
+                            function_name,
+                        ));
+                    }
+
+                    if *value > 0xFFFF {
+                        return Err(Error::InvalidValue(*value, function_name));
+                    }
+                    let bytes = value.to_le_bytes();
+                    let instruction = [0x89, bytes[0], bytes[1]]; // BIT imm
                     context
                         .bank
                         .push_code("BIT A imm", function_name, &instruction)?;

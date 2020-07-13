@@ -12,7 +12,16 @@ fn main() {
     input
         .read_to_string(&mut code)
         .expect("Could not read code from file");
-    let ast = parser::program(&code).expect("Parse Error loading program");
+    let ast = match parser::program(&code) {
+        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
+            for err in e.errors {
+                println!("{:?} {:?}", err.1, err.0);
+            }
+            panic!("Error parsing input");
+        }
+        Err(nom::Err::Incomplete(_)) => panic!("Incomplete input"),
+        Ok(ast) => ast,
+    };
     let image = codegen::assemble(&ast).expect("Codegen error with program");
 
     let mut output = std::fs::File::create(&out_path).expect("Could not open output file");

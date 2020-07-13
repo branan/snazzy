@@ -1,0 +1,229 @@
+FUN cop [INTR] {}
+FUN brk [INTR] {}
+FUN irq [INTR] {}
+
+FUN cop_emu [EMU, INTR] {}
+FUN nmi_emu [EMU, INTR] {}
+FUN irq_emu [EMU, INTR] {}
+
+# Init code stolen shamelessly from
+# https://en.wikibooks.org/wiki/Super_NES_Programming/Initialization_Tutorial/Snes_Init
+FUN reset [EMU, INTR] {
+  SEI;
+  # No explicit switch to native mode - the [NAT] block handles that transition for us
+  [NAT] {
+    [WIDEM] {
+      # Setup the stack and zero page pointers
+      C := 0x01FF;
+      S := C;
+      C := 0x0000;
+      D := C;
+    }
+
+    A := 0x8F;
+    *0x2100 := A;
+    *0x2101 := 0;
+    *0x2102 := 0;
+    *0x2103 := 0;
+    *0x2105 := 0;
+    *0x2106 := 0;
+    *0x2107 := 0;
+    *0x2108 := 0;
+    *0x2109 := 0;
+    *0x210A := 0;
+    *0x210B := 0;
+    *0x210C := 0;
+    *0x210D := 0;
+    *0x210D := 0;
+    A := 0xFF;
+    *0x210E := A;
+    *0x2110 := A;
+    *0x2112 := A;
+    *0x2114 := A;
+    A := 0x07;
+    *0x210E := A;
+    *0x2110 := A;
+    *0x2112 := A;
+    *0x2114 := A;
+    *0x210f := 0;
+    *0x210f := 0;
+    *0x2111 := 0;
+    *0x2111 := 0;
+    *0x2113 := 0;
+    *0x2113 := 0;
+    A := 0x80;
+    *0x2115 := A;
+    *0x2116 := 0;
+    *0x2117 := 0;
+    *0x211A := 0;
+    *0x211B := 0;
+    A := 0x01;
+    *0x211B := A;
+    *0x211C := 0;
+    *0x211C := 0;
+    *0x211D := 0;
+    *0x211D := 0;
+    *0x211E := 0;
+    *0x211E := A;
+    *0x211F := 0;
+    *0x211F := 0;
+    *0x2120 := 0;
+    *0x2120 := 0;
+    *0x2121 := 0;
+    *0x2123 := 0;
+    *0x2124 := 0;
+    *0x2125 := 0;
+    *0x2126 := 0;
+    *0x2127 := 0;
+    *0x2128 := 0;
+    *0x2129 := 0;
+    *0x212A := 0;
+    *0x212B := 0;
+    *0x212C := A;
+    *0x212D := 0;
+    *0x212E := 0;
+    *0x212F := 0;
+    A := 0x30;
+    *0x2130 := A;
+    *0x2131 := 0;
+    A := 0xE0;
+    *0x2132 := A;
+    *0x2133 := 0;
+
+    A := 0xFF;
+    *0x4200 := 0;
+    *0x4201 := A;
+    *0x4202 := 0;
+    *0x4203 := 0;
+    *0x4204 := 0;
+    *0x4205 := 0;
+    *0x4206 := 0;
+    *0x4207 := 0;
+    *0x4208 := 0;
+    *0x4209 := 0;
+    *0x420A := 0;
+    *0x420B := 0;
+    *0x420C := 0;
+    *0x420D := 0;
+
+    CLI;
+    main();
+  }
+}
+
+# END setup boilerplate
+
+VAR inidisp := 0x2100;
+VAR cgadd := 0x2121;
+VAR cgdata := 0x2122;
+VAR nmitimen := 0x4200;
+VAR hvbjoy := 0x4212;
+VAR joy := 0x4218;
+VAR status := 0x0000;
+VAR col := 0x0001;
+VAR col_lo := 0x0001;
+VAR col_hi := 0x0002;
+
+FUN main {
+  # force-blanking is on from init, so we can set PPU registers
+
+  # Load a nice dark blue into the palette.
+  # cgaddr is already at address 0 from init
+  A := 0x3C;
+  cgdata := 0;
+  cgdata := A;
+
+  # TODO: Set our game state to its initial value
+
+  # Our init is done - enable NMI for first gamestate update
+  A := 2; # main loop done, NMI not done
+  status := A; 
+
+  # All startup done - enable NMI and auto joypad read
+  A := 0x81;
+  nmitimen := A;
+
+  # Main Loop
+  DO {
+    # Wait for NMI 
+    DO {
+      A := status;
+    } WHILE (A !& 1)
+
+    # Wait for auto joypad read to complete
+    # This could be omitted if the NMI function took longer
+    DO {
+      A := hvbjoy;
+    } WHILE (A && 1)
+
+    [WIDEM, WIDEX] {
+      C := joy;
+      X := col;
+      IF (C && 0x8000) {
+        # B
+	X := 0x3C00;
+      }
+      IF (C && 0x4000) {
+        # Y
+	X := 0x01E0;
+      }
+      IF (C && 0x80) {
+        # A
+	X := 0x000F;
+      }
+      IF (C && 0x40) {
+        # X
+	X := 0x3DEF;
+      }
+      col := X;
+    }
+
+    A := status;
+    A |= 2; # Set "main loop done" bit
+    A &= 0xFE; # Clear "NMI done" bit
+    status := A;
+  }
+}
+
+FUN nmi [INTR] {
+  [WIDEM, WIDEX] {
+    PUSH C;
+    PUSH X;
+    PUSH Y;
+  }
+  # Entering then leaving the WIDEM,WIDEX block above ensures we're in
+  # narrow M,X here post-interrupt-entry
+  
+  # Check if game update is done
+  A := status;
+  IF (A && 2) {
+    # Enable force blank
+    A := 0x8F;
+    inidisp := A;
+
+    # TODO: Update PPU state for new game state
+
+    # Disable force blank
+    A := 0x0F;
+    inidisp := A;
+
+    # Update BG color
+    cgadd := 0;
+    A := col_lo;
+    cgdata := A;
+    A := col_hi;
+    cgdata := A;
+
+    # Signal to main loop that PPU is updated, and it can iterate again
+    A := status;
+    A |= 1; # Set "NMI done" bit
+    A &= 0xFD; # Clear "main loop done" bit
+    status := A;
+  }
+
+  [WIDEM, WIDEX] {
+    POP Y;
+    POP X;
+    POP C;
+  }
+}
