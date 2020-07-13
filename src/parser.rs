@@ -57,7 +57,11 @@ fn block(input: &str) -> IResult<Block> {
                 attributes,
                 context(
                     "body",
-                    delimited(ws(tag("{")), many0(instruction), ws(tag("}"))),
+                    delimited(
+                        context("open", ws(tag("{"))),
+                        context("inner", many0(instruction)),
+                        context("close", ws(tag("}"))),
+                    ),
                 ),
             ),
             |(attributes, instructions)| Block {
@@ -102,21 +106,38 @@ fn instruction(input: &str) -> IResult<Instruction> {
             terminated(
                 alt((
                     assign,
+                    and_assign,
+                    or_assign,
                     call,
+                    push,
+                    pop,
                     value(Instruction::Sei, ws(tag("SEI"))),
                     value(Instruction::Cli, ws(tag("CLI"))),
                 )),
                 ws(tag(";")),
             ),
             do_loop,
+            if_block,
             map(block, Instruction::Block),
         )),
     )(input)
 }
 
 fn do_loop(input: &str) -> IResult<Instruction> {
-    // TODO: This needs an optional trailing predicate
-    map(preceded(ws(tag("DO")), block), Instruction::Loop)(input)
+    map(
+        preceded(
+            ws(tag("DO")),
+            pair(block, opt(preceded(ws(tag("WHILE")), conditional))),
+        ),
+        |(block, cond)| Instruction::Loop(block, cond),
+    )(input)
+}
+
+fn if_block(input: &str) -> IResult<Instruction> {
+    map(
+        preceded(ws(tag("IF")), pair(conditional, block)),
+        |(cond, block)| Instruction::If(block, cond),
+    )(input)
 }
 
 fn assign(input: &str) -> IResult<Instruction> {
@@ -126,8 +147,71 @@ fn assign(input: &str) -> IResult<Instruction> {
     )(input)
 }
 
+fn and_assign(input: &str) -> IResult<Instruction> {
+    map(
+        separated_pair(ws(operand), ws(tag("&=")), ws(operand)),
+        |(l, r)| Instruction::AndAssign(l, r),
+    )(input)
+}
+
+fn or_assign(input: &str) -> IResult<Instruction> {
+    map(
+        separated_pair(ws(operand), ws(tag("|=")), ws(operand)),
+        |(l, r)| Instruction::OrAssign(l, r),
+    )(input)
+}
+
 fn call(input: &str) -> IResult<Instruction> {
     map(terminated(ws(identifier), ws(tag("()"))), Instruction::Call)(input)
+}
+
+fn push(input: &str) -> IResult<Instruction> {
+    map(preceded(ws(tag("PUSH")), ws(operand)), Instruction::Push)(input)
+}
+
+fn pop(input: &str) -> IResult<Instruction> {
+    map(preceded(ws(tag("POP")), ws(operand)), Instruction::Pop)(input)
+}
+
+fn conditional(input: &str) -> IResult<Conditional> {
+    context(
+        "conditional",
+        delimited(
+            ws(tag("(")),
+            alt((equality, bit_test, not_bit_test)),
+            ws(tag(")")),
+        ),
+    )(input)
+}
+
+fn bit_test(input: &str) -> IResult<Conditional> {
+    context(
+        "bit_test",
+        map(
+            separated_pair(ws(operand), ws(tag("&&")), ws(operand)),
+            |(lhs, rhs)| Conditional::BitTest(lhs, rhs),
+        ),
+    )(input)
+}
+
+fn not_bit_test(input: &str) -> IResult<Conditional> {
+    context(
+        "not_bit_test",
+        map(
+            separated_pair(ws(operand), ws(tag("!&")), ws(operand)),
+            |(lhs, rhs)| Conditional::NotBitTest(lhs, rhs),
+        ),
+    )(input)
+}
+
+fn equality(input: &str) -> IResult<Conditional> {
+    context(
+        "equality",
+        map(
+            separated_pair(ws(operand), ws(tag("==")), ws(operand)),
+            |(lhs, rhs)| Conditional::Equality(lhs, rhs),
+        ),
+    )(input)
 }
 
 fn operand(input: &str) -> IResult<Operand> {

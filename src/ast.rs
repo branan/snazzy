@@ -42,11 +42,23 @@ pub enum Attribute {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instruction<'a> {
     Assign(Operand<'a>, Operand<'a>),
+    AndAssign(Operand<'a>, Operand<'a>),
+    OrAssign(Operand<'a>, Operand<'a>),
     Block(Block<'a>),
     Call(&'a str),
-    Loop(Block<'a>),
+    If(Block<'a>, Conditional<'a>),
+    Loop(Block<'a>, Option<Conditional<'a>>),
+    Push(Operand<'a>),
+    Pop(Operand<'a>),
     Cli,
     Sei,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Conditional<'a> {
+    BitTest(Operand<'a>, Operand<'a>),
+    Equality(Operand<'a>, Operand<'a>),
+    NotBitTest(Operand<'a>, Operand<'a>),
 }
 
 #[derive(Clone, Debug, PartialEq)]

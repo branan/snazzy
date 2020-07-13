@@ -31,8 +31,16 @@ pub enum Relocation<'a> {
 #[derive(Debug, PartialEq)]
 pub enum Error<'a> {
     BadAssignment(&'a Operand<'a>, &'a Operand<'a>, &'a str),
+    BadAndAssignment(&'a Operand<'a>, &'a Operand<'a>, &'a str),
+    BadOrAssignment(&'a Operand<'a>, &'a Operand<'a>, &'a str),
+    BadBitTest(&'a Operand<'a>, &'a Operand<'a>, &'a str),
+    BadEquality(&'a Operand<'a>, &'a Operand<'a>, &'a str),
+    BadPush(&'a Operand<'a>, &'a str),
+    BadPop(&'a Operand<'a>, &'a str),
     ConflictingAttributes(Attribute, Attribute, &'a str),
     NoSpace(&'static str, &'a str),
+    LoopTooLong(&'a str),
+    IfTooLong(&'a str),
     InvalidAddress(u32, &'a str),
     InvalidValue(u32, &'a str),
     InvalidRegister(Register, Attribute, &'a str),
@@ -251,6 +259,29 @@ fn assemble_instruction<'c, 'p: 'c>(
                     }
                 }
             }
+            (Operand::Register(Register::A), Operand::Variable(var)) => {
+                if context.wide_math {
+                    Err(Error::InvalidRegister(
+                        Register::A,
+                        Attribute::WideMath,
+                        function_name,
+                    ))
+                } else {
+                    if let Some(Name::Var(addr)) = context.names.get(var) {
+                        if *addr > 0xFFFF {
+                            Err(Error::InvalidAddress(*addr, function_name))
+                        } else {
+                            let bytes = addr.to_le_bytes();
+                            let instruction = [0xAD, bytes[0], bytes[1]]; // LDA abs
+                            context
+                                .bank
+                                .push_code("Load A", function_name, &instruction)
+                        }
+                    } else {
+                        Err(Error::UnknownVariable(var, function_name))
+                    }
+                }
+            }
             (Operand::Register(Register::C), Operand::Immediate(value)) => {
                 if context.wide_math {
                     if *value > 0xFFFF {
@@ -330,25 +361,59 @@ fn assemble_instruction<'c, 'p: 'c>(
             }
             (l, r) => Err(Error::BadAssignment(l, r, function_name)),
         },
+        Instruction::AndAssign(l, r) => {
+            match (l, r) {
+                (Operand::Register(Register::A), Operand::Immediate(value)) => {
+                    if context.wide_math {
+                        Err(Error::InvalidRegister(
+                            Register::A,
+                            Attribute::WideMath,
+                            function_name,
+                        ))
+                    } else {
+                        if *value > 0xFF {
+                            Err(Error::InvalidValue(*value, function_name))
+                        } else {
+                            let bytes = value.to_le_bytes();
+                            let instruction = [0x29, bytes[0]]; // AND imm
+                            context
+                                .bank
+                                .push_code("And A imm", function_name, &instruction)
+                        }
+                    }
+                }
+                _ => Err(Error::BadAndAssignment(l, r, function_name)),
+            }
+        }
+        Instruction::OrAssign(l, r) => {
+            match (l, r) {
+                (Operand::Register(Register::A), Operand::Immediate(value)) => {
+                    if context.wide_math {
+                        Err(Error::InvalidRegister(
+                            Register::A,
+                            Attribute::WideMath,
+                            function_name,
+                        ))
+                    } else {
+                        if *value > 0xFF {
+                            Err(Error::InvalidValue(*value, function_name))
+                        } else {
+                            let bytes = value.to_le_bytes();
+                            let instruction = [0x09, bytes[0]]; // ORA imm
+                            context
+                                .bank
+                                .push_code("Or A imm", function_name, &instruction)
+                        }
+                    }
+                }
+                _ => Err(Error::BadOrAssignment(l, r, function_name)),
+            }
+        }
         Instruction::Block(block) => {
             let mut emulation = context.emulation;
             let mut wide_math = context.wide_math;
             let mut wide_index = context.wide_index;
             update_codegen(context, &block.attributes, function_name)?;
-            if context.emulation && context.wide_math {
-                return Err(Error::ConflictingAttributes(
-                    Attribute::Emulation,
-                    Attribute::WideMath,
-                    function_name,
-                ));
-            }
-            if context.emulation && context.wide_index {
-                return Err(Error::ConflictingAttributes(
-                    Attribute::Emulation,
-                    Attribute::WideIndex,
-                    function_name,
-                ));
-            }
             update_emulation(context, emulation, function_name)?;
             update_mx(context, wide_math, wide_index, function_name)?;
             for instruction in &block.instructions {
@@ -368,21 +433,8 @@ fn assemble_instruction<'c, 'p: 'c>(
                 let mut wide_math = context.wide_math;
                 let mut wide_index = context.wide_index;
                 update_codegen(context, &attributes, function_name)?;
-                if context.emulation && context.wide_math {
-                    return Err(Error::ConflictingAttributes(
-                        Attribute::Emulation,
-                        Attribute::WideMath,
-                        function_name,
-                    ));
-                }
-                if context.emulation && context.wide_index {
-                    return Err(Error::ConflictingAttributes(
-                        Attribute::Emulation,
-                        Attribute::WideIndex,
-                        function_name,
-                    ));
-                }
-
+                update_emulation(context, emulation, function_name)?;
+                update_mx(context, wide_math, wide_index, function_name)?;
                 let addr = addr.unwrap_or_else(|| {
                     context
                         .relocations
@@ -407,25 +459,38 @@ fn assemble_instruction<'c, 'p: 'c>(
                 Err(Error::UnknownFunction(target, function_name))
             }
         }
-        Instruction::Loop(block) => {
+        Instruction::If(block, cond) => {
+            assemble_conditional(context, cond, None, true, function_name)?;
+            let block_start = context.bank.code.len();
             let mut emulation = context.emulation;
             let mut wide_math = context.wide_math;
             let mut wide_index = context.wide_index;
             update_codegen(context, &block.attributes, function_name)?;
-            if context.emulation && context.wide_math {
-                return Err(Error::ConflictingAttributes(
-                    Attribute::Emulation,
-                    Attribute::WideMath,
-                    function_name,
-                ));
+            update_emulation(context, emulation, function_name)?;
+            update_mx(context, wide_math, wide_index, function_name)?;
+            for instruction in &block.instructions {
+                assemble_instruction(context, instruction, function_name)?;
             }
-            if context.emulation && context.wide_index {
-                return Err(Error::ConflictingAttributes(
-                    Attribute::Emulation,
-                    Attribute::WideIndex,
-                    function_name,
-                ));
+            std::mem::swap(&mut emulation, &mut context.emulation);
+            std::mem::swap(&mut wide_math, &mut context.wide_math);
+            std::mem::swap(&mut wide_index, &mut context.wide_index);
+            update_emulation(context, emulation, function_name)?;
+            update_mx(context, wide_math, wide_index, function_name)?;
+
+            let block_len = context.bank.code.len() - block_start;
+            if block_len > 127 {
+                return Err(Error::IfTooLong(function_name));
             }
+
+            let fixup = block_start - 1;
+            context.bank.code[fixup] = block_len as u8;
+            Ok(())
+        }
+        Instruction::Loop(block, cond) => {
+            let mut emulation = context.emulation;
+            let mut wide_math = context.wide_math;
+            let mut wide_index = context.wide_index;
+            update_codegen(context, &block.attributes, function_name)?;
             update_emulation(context, emulation, function_name)?;
             update_mx(context, wide_math, wide_index, function_name)?;
             let loop_start = context.bank.code.len();
@@ -439,19 +504,23 @@ fn assemble_instruction<'c, 'p: 'c>(
                     true
                 }
             });
-            let loop_length = context.bank.code.len() - loop_start;
-            if loop_length <= 126 {
-                // Short loop, use a BRA
-                let offset = (!(loop_length as u8 + 2)) + 1;
-                context
-                    .bank
-                    .push_code("Loop", function_name, &[0x80, offset])?;
+            if let Some(cond) = cond {
+                assemble_conditional(context, cond, Some(loop_start), false, function_name)?;
             } else {
-                // Long loop, must use a JMP
-                let bytes = (loop_start + context.bank.start).to_le_bytes();
-                context
-                    .bank
-                    .push_code("Loop", function_name, &[0x4C, bytes[0], bytes[1]])?;
+                let loop_length = context.bank.code.len() - loop_start;
+                if loop_length <= 126 {
+                    // Short loop, use a BRA
+                    let offset = (!(loop_length as u8 + 2)) + 1;
+                    context
+                        .bank
+                        .push_code("Loop", function_name, &[0x80, offset])?;
+                } else {
+                    // Long loop, must use a JMP
+                    let bytes = (loop_start + context.bank.start).to_le_bytes();
+                    context
+                        .bank
+                        .push_code("Loop", function_name, &[0x4C, bytes[0], bytes[1]])?;
+                }
             }
             std::mem::swap(&mut emulation, &mut context.emulation);
             std::mem::swap(&mut wide_math, &mut context.wide_math);
@@ -462,7 +531,154 @@ fn assemble_instruction<'c, 'p: 'c>(
         }
         Instruction::Cli => context.bank.push_code("Cli", function_name, &[0x58]),
         Instruction::Sei => context.bank.push_code("Sei", function_name, &[0x78]),
+        Instruction::Push(reg) => match reg {
+            Operand::Register(Register::A) => {
+                if !context.wide_math {
+                    context.bank.push_code("PHA", function_name, &[0x48])
+                } else {
+                    Err(Error::InvalidRegister(
+                        Register::A,
+                        Attribute::NarrowMath,
+                        function_name,
+                    ))
+                }
+            }
+            Operand::Register(Register::C) => {
+                if context.wide_math {
+                    context.bank.push_code("PHA", function_name, &[0x48])
+                } else {
+                    Err(Error::InvalidRegister(
+                        Register::C,
+                        Attribute::NarrowMath,
+                        function_name,
+                    ))
+                }
+            }
+            Operand::Register(Register::X) => context.bank.push_code("PHX", function_name, &[0xDA]),
+            Operand::Register(Register::Y) => context.bank.push_code("PHY", function_name, &[0x5A]),
+            _ => Err(Error::BadPush(reg, function_name)),
+        },
+        Instruction::Pop(reg) => match reg {
+            Operand::Register(Register::A) => {
+                if !context.wide_math {
+                    context.bank.push_code("PLA", function_name, &[0x68])
+                } else {
+                    Err(Error::InvalidRegister(
+                        Register::A,
+                        Attribute::NarrowMath,
+                        function_name,
+                    ))
+                }
+            }
+            Operand::Register(Register::C) => {
+                if context.wide_math {
+                    context.bank.push_code("PLA", function_name, &[0x68])
+                } else {
+                    Err(Error::InvalidRegister(
+                        Register::C,
+                        Attribute::NarrowMath,
+                        function_name,
+                    ))
+                }
+            }
+            Operand::Register(Register::X) => context.bank.push_code("PLX", function_name, &[0xFA]),
+            Operand::Register(Register::Y) => context.bank.push_code("PLY", function_name, &[0x7A]),
+            _ => Err(Error::BadPop(reg, function_name)),
+        },
     }
+}
+
+fn assemble_conditional<'a, 'c, 'p: 'c>(
+    context: &'c mut Context<'p>,
+    conditional: &'p Conditional<'p>,
+    target: Option<usize>,
+    invert: bool,
+    function_name: &'p str,
+) -> Result<'p> {
+    let zero = invert
+        ^ match conditional {
+            Conditional::NotBitTest(l, r) => match (l, r) {
+                (Operand::Register(Register::A), Operand::Immediate(value)) => {
+                    if context.wide_math {
+                        return Err(Error::InvalidRegister(
+                            Register::A,
+                            Attribute::WideMath,
+                            function_name,
+                        ));
+                    }
+
+                    if *value > 0xFF {
+                        return Err(Error::InvalidValue(*value, function_name));
+                    }
+                    let bytes = value.to_le_bytes();
+                    let instruction = [0x89, bytes[0]]; // BIT imm
+                    context
+                        .bank
+                        .push_code("BIT A imm", function_name, &instruction)?;
+
+                    true
+                }
+                _ => return Err(Error::BadBitTest(l, r, function_name)),
+            },
+            Conditional::BitTest(l, r) => match (l, r) {
+                (Operand::Register(Register::A), Operand::Immediate(value)) => {
+                    if context.wide_math {
+                        return Err(Error::InvalidRegister(
+                            Register::A,
+                            Attribute::WideMath,
+                            function_name,
+                        ));
+                    }
+
+                    if *value > 0xFF {
+                        return Err(Error::InvalidValue(*value, function_name));
+                    }
+                    let bytes = value.to_le_bytes();
+                    let instruction = [0x89, bytes[0]]; // BIT imm
+                    context
+                        .bank
+                        .push_code("BIT A imm", function_name, &instruction)?;
+
+                    false
+                }
+                _ => return Err(Error::BadBitTest(l, r, function_name)),
+            },
+            Conditional::Equality(l, r) => match (l, r) {
+                (Operand::Register(Register::A), Operand::Immediate(value)) => {
+                    if context.wide_math {
+                        return Err(Error::InvalidRegister(
+                            Register::A,
+                            Attribute::WideMath,
+                            function_name,
+                        ));
+                    }
+
+                    if *value > 0xFF {
+                        return Err(Error::InvalidValue(*value, function_name));
+                    }
+                    let bytes = value.to_le_bytes();
+                    let instruction = [0xC9, bytes[0]]; // CMP imm
+                    context
+                        .bank
+                        .push_code("CMP A imm", function_name, &instruction)?;
+
+                    true
+                }
+                _ => return Err(Error::BadEquality(l, r, function_name)),
+            },
+        };
+    let loop_length = target
+        .map(|target| context.bank.code.len() - target)
+        .unwrap_or(0);
+    let offset = (!(loop_length as u8 + 2)) + 1;
+    if loop_length > 126 {
+        return Err(Error::LoopTooLong(function_name));
+    }
+    let opcode = if zero { 0xF0 } else { 0xD0 };
+    context
+        .bank
+        .push_code("Loop CC", function_name, &[opcode, offset])?;
+    Ok(())
 }
 
 fn update_codegen<'a, 'c, 'p: 'c>(
@@ -477,6 +693,20 @@ fn update_codegen<'a, 'c, 'p: 'c>(
                     return Err(Error::ConflictingAttributes(
                         Attribute::Emulation,
                         Attribute::Native,
+                        function_name,
+                    ));
+                }
+                if attributes.contains(&Attribute::WideIndex) {
+                    return Err(Error::ConflictingAttributes(
+                        Attribute::NarrowIndex,
+                        Attribute::WideIndex,
+                        function_name,
+                    ));
+                }
+                if attributes.contains(&Attribute::WideMath) {
+                    return Err(Error::ConflictingAttributes(
+                        Attribute::NarrowMath,
+                        Attribute::WideMath,
                         function_name,
                     ));
                 }
@@ -520,6 +750,14 @@ fn update_codegen<'a, 'c, 'p: 'c>(
                         function_name,
                     ));
                 }
+                if attributes.contains(&Attribute::Emulation) {
+                    return Err(Error::ConflictingAttributes(
+                        Attribute::Native,
+                        Attribute::Emulation,
+                        function_name,
+                    ));
+                }
+                context.emulation = false;
                 context.wide_index = true;
             }
             Attribute::WideMath => {
@@ -530,6 +768,14 @@ fn update_codegen<'a, 'c, 'p: 'c>(
                         function_name,
                     ));
                 }
+                if attributes.contains(&Attribute::Emulation) {
+                    return Err(Error::ConflictingAttributes(
+                        Attribute::Native,
+                        Attribute::Emulation,
+                        function_name,
+                    ));
+                }
+                context.emulation = false;
                 context.wide_math = true;
             }
             _ => {}

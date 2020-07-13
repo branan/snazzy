@@ -51,13 +51,6 @@ fn snes() {
                 },
             }),
             Definition::Function(Function {
-                name: "nmi",
-                body: Block {
-                    attributes: vec![Attribute::Interrupt],
-                    instructions: vec![],
-                },
-            }),
-            Definition::Function(Function {
                 name: "irq",
                 body: Block {
                     attributes: vec![Attribute::Interrupt],
@@ -466,6 +459,14 @@ fn snes() {
                 address: 0x2122,
                 name: "cgdata",
             }),
+            Definition::Var(Var {
+                address: 0x4200,
+                name: "nmitimen",
+            }),
+            Definition::Var(Var {
+                address: 0x0000,
+                name: "status",
+            }),
             Definition::Function(Function {
                 name: "main",
                 body: Block {
@@ -473,24 +474,133 @@ fn snes() {
                     instructions: vec![
                         Instruction::Assign(
                             Operand::Register(Register::A),
-                            Operand::Immediate(0x1C),
+                            Operand::Immediate(0x3C),
                         ),
                         Instruction::Assign(Operand::Variable("cgdata"), Operand::Immediate(0)),
                         Instruction::Assign(
                             Operand::Variable("cgdata"),
                             Operand::Register(Register::A),
                         ),
+                        Instruction::Assign(Operand::Register(Register::A), Operand::Immediate(2)),
                         Instruction::Assign(
-                            Operand::Register(Register::A),
-                            Operand::Immediate(0x0F),
-                        ),
-                        Instruction::Assign(
-                            Operand::Variable("inidisp"),
+                            Operand::Variable("status"),
                             Operand::Register(Register::A),
                         ),
-                        Instruction::Loop(Block {
-                            attributes: vec![],
-                            instructions: vec![],
+                        Instruction::Assign(
+                            Operand::Register(Register::A),
+                            Operand::Immediate(0b1000_0001),
+                        ),
+                        Instruction::Assign(
+                            Operand::Variable("nmitimen"),
+                            Operand::Register(Register::A),
+                        ),
+                        Instruction::Loop(
+                            Block {
+                                attributes: vec![],
+                                instructions: vec![
+                                    Instruction::Loop(
+                                        Block {
+                                            attributes: vec![],
+                                            instructions: vec![Instruction::Assign(
+                                                Operand::Register(Register::A),
+                                                Operand::Variable("status"),
+                                            )],
+                                        },
+                                        Some(Conditional::NotBitTest(
+                                            Operand::Register(Register::A),
+                                            Operand::Immediate(1),
+                                        )),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Register(Register::A),
+                                        Operand::Variable("status"),
+                                    ),
+                                    Instruction::OrAssign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(0b0000_0010),
+                                    ),
+                                    Instruction::AndAssign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(0b1111_1110),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Variable("status"),
+                                        Operand::Register(Register::A),
+                                    ),
+                                ],
+                            },
+                            None,
+                        ),
+                    ],
+                },
+            }),
+            Definition::Function(Function {
+                name: "nmi",
+                body: Block {
+                    attributes: vec![Attribute::Interrupt],
+                    instructions: vec![
+                        Instruction::Block(Block {
+                            attributes: vec![Attribute::WideMath, Attribute::WideIndex],
+                            instructions: vec![
+                                Instruction::Push(Operand::Register(Register::C)),
+                                Instruction::Push(Operand::Register(Register::X)),
+                                Instruction::Push(Operand::Register(Register::Y)),
+                            ],
+                        }),
+                        Instruction::Assign(
+                            Operand::Register(Register::A),
+                            Operand::Variable("status"),
+                        ),
+                        Instruction::If(
+                            Block {
+                                attributes: vec![],
+                                instructions: vec![
+                                    Instruction::Assign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(0x8F),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Variable("inidisp"),
+                                        Operand::Register(Register::A),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(0x0F),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Variable("inidisp"),
+                                        Operand::Register(Register::A),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Register(Register::A),
+                                        Operand::Variable("status"),
+                                    ),
+                                    Instruction::OrAssign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(1),
+                                    ),
+                                    Instruction::AndAssign(
+                                        Operand::Register(Register::A),
+                                        Operand::Immediate(0b1111_1101),
+                                    ),
+                                    Instruction::Assign(
+                                        Operand::Variable("status"),
+                                        Operand::Register(Register::A),
+                                    ),
+                                ],
+                            },
+                            Conditional::BitTest(
+                                Operand::Register(Register::A),
+                                Operand::Immediate(2),
+                            ),
+                        ),
+                        Instruction::Block(Block {
+                            attributes: vec![Attribute::WideMath, Attribute::WideIndex],
+                            instructions: vec![
+                                Instruction::Pop(Operand::Register(Register::Y)),
+                                Instruction::Pop(Operand::Register(Register::X)),
+                                Instruction::Pop(Operand::Register(Register::C)),
+                            ],
                         }),
                     ],
                 },

@@ -1,6 +1,5 @@
 FUN cop [INTR] {}
 FUN brk [INTR] {}
-FUN nmi [INTR] {}
 FUN irq [INTR] {}
 
 FUN cop_emu [EMU, INTR] {}
@@ -116,20 +115,76 @@ FUN reset [EMU, INTR] {
 
 VAR inidisp := 0x2100;
 VAR cgdata := 0x2122;
+VAR nmitimen := 0x4200;
+VAR status := 0x0000;
 
 FUN main {
-  # force-blanking is on from init, so we can set our registers
+  # force-blanking is on from init, so we can set PPU registers
 
   # Load a nice dark blue into the palette.
   # cgaddr is already at address 0 from init
-  A := 0x1C;
-  cgdata:= 0;
+  A := 0x3C;
+  cgdata := 0;
   cgdata := A;
 
-  # Disable force blank
-  A := 0x0F;
-  inidisp := A;
+  # TODO: Set our game state to its initial value
 
-  # We're done - wait forever
-  DO {}
+  # Our init is done - enable NMI for first gamestate update
+  A := 2; # main loop done, NMI not done
+  status := A; 
+
+  # All startup done - enable NMI and auto joypad read
+  A := 0x81;
+  nmitimen := A;
+
+  # Main Loop
+  DO {
+    # Wait for NMI 
+    DO {
+      A := status;
+    } WHILE (A !& 1)
+
+    # TODO: Update game state
+
+    A := status;
+    A |= 2; # Set "main loop done" bit
+    A &= 0xFE; # Clear "NMI done" bit
+    status := A;
+  }
+}
+
+FUN nmi [INTR] {
+  [WIDEM, WIDEX] {
+    PUSH C;
+    PUSH X;
+    PUSH Y;
+  }
+  # Entering then leaving the WIDEM,WIDEX block above ensures we're in
+  # narrow M,X here post-interrupt-entry
+  
+  # Check if game update is done
+  A := status;
+  IF (A && 2) {
+    # Enable force blank
+    A := 0x8F;
+    inidisp := A;
+
+    # TODO: Update PPU state for new game state
+
+    # Disable force blank
+    A := 0x0F;
+    inidisp := A;
+
+    # Signal to main loop that PPU is updated, and it can iterate again
+    A := status;
+    A |= 1; # Set "NMI done" bit
+    A &= 0xFD; # Clear "main loop done" bit
+    status := A;
+  }
+
+  [WIDEM, WIDEX] {
+    POP Y;
+    POP X;
+    POP C;
+  }
 }
