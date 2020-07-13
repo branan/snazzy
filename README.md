@@ -46,13 +46,33 @@ loop:
 For a full, runnable version of the above example, see the [test
 program](tests/input/snes.snz)
 
+In addition, there are example programs available in the `examples`
+directory. These can be compiled to ROM images with `cargo run --
+example/<example_name>.snz`.
+
 ## Supported Features
 
 * Automatic adustment of mode flags on function calls and block entry/exit
 * SEI/CLI instructions
 * Some types of assignments
+* Some types of conditionals
+* Do-while loops
+* Some conditionals
 * Function calls
-* nice names for registers/globals
+* Nice names for registers/globals
+
+## Missing Features
+
+This is a bareones proof-of-concept at the moment, so most features
+you'd want are missing, including but not limited to:
+
+* More assignments
+* More conditionals
+* Function locals
+* Math
+* Multiple banks
+* Adding data to the ROM image
+* Many more
 
 ## Installation
 
@@ -61,20 +81,6 @@ from git:
 ```
 cargo install --git https://github.com/branan/snazzy
 ```
-
-## Missing Features
-
-This is a bareones proof-of-concept at the moment, so most features
-you'd want are missing, including but not limited to:
-
-* More assignments
-* Function locals
-* Conditionals
-* Non-infinite loops
-* Math
-* Multiple banks
-* Adding data to the ROM image
-* Many more
 
 ## What's with the name?
 
